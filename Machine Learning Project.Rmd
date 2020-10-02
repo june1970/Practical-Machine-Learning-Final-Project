@@ -1,0 +1,187 @@
+---
+title: "Prediction Assignment Writeup"
+author: "Jun Nelson"
+date: "10/1/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+#Background
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: http://web.archive.org/web/20161224072740/http:/groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset).
+
+#Data Source
+The training data for this project are available here:
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+The test data are available here:
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.cs
+
+The data for this project come from this source: http://web.archive.org/web/20161224072740/http:/groupware.les.inf.puc-rio.br/har. If you use the document you create for this class for any purpose please cite them as they have been very generous in allowing their data to be used for this kind of assignment.
+
+#Loading data:
+```{r}
+downloadcsv <- function(url, nastrings) {
+    temp <- tempfile()
+    download.file(url, temp, method = "curl")
+    data <- read.csv(temp, na.strings = nastrings)
+    unlink(temp)
+    return(data)
+}
+
+trainurl <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+training <- downloadcsv(trainurl, c("", "NA", "#DIV/0!"))
+
+testurl <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+testing <- downloadcsv(testurl, c("", "NA", "#DIV/0!"))
+```
+# Data structue and features
+```{r}
+dim(training)
+table(training$classe)
+```
+The dataset has 19622 rows and 160 columns and is classified five types: A, B, C, D, and E
+
+#Preprocessing the data
+
+Training dataset Partition into Training set and validating set
+```{r}
+library(caret)
+library(lattice)
+library(ggplot2)
+library(parallel)
+```
+
+```{r}
+library(splines)
+library(plyr)
+library(doParallel)
+library(e1071)
+library(gbm)
+library(randomForest)
+library(iterators)
+library(foreach)
+library(survival)
+```
+```{r}
+library(survival)
+```
+
+```{r}
+library(caret)
+```
+
+# Data Cleanse
+exclude near zero variance and columns with missing values and descriptive columns ""
+
+```{r}
+training <- training[, 6:dim(training)[2]]
+treshold <- dim(training)[1] * 0.95
+```
+
+```{r}
+goodColumns <- !apply(training, 2, function(x) sum(is.na(x)) > treshold  || sum(x=="") > treshold)
+```
+
+```{r}
+training <- training[, goodColumns]
+```
+
+```{r}
+badColumns <- nearZeroVar(training, saveMetrics = TRUE)
+```
+
+
+```{r}
+training <- training[, badColumns$nzv==FALSE]
+training$classe = factor(training$classe)
+```
+
+#Training data partition into training set and validation set 
+```{r}
+set.seed(123456)
+inTrain <- createDataPartition(training$classe, p = 0.6)[[1]]
+crossv <- training[-inTrain,]
+training <- training[ inTrain,]
+inTrain <- createDataPartition(crossv$classe, p = 0.75)[[1]]
+crossv_test <- crossv[ -inTrain,]
+crossv <- crossv[inTrain,]
+```
+
+Testing data application
+
+```{r}
+testing <- testing[, 6:dim(testing)[2]]
+testing <- testing[, goodColumns]
+testing$classe <- NA
+testing <- testing[, badColumns$nzv==FALSE]
+```
+
+#Model with Training data
+
+
+```{r}
+mod1 <- train(classe ~ ., data=training, method="rf")
+```
+
+
+
+#mod2 <- train(classe ~ ., data=training, method="gbm")
+#mod3 <- train(classe ~ ., data=training, method="lda")
+
+```{r}
+pred1 <- predict(mod1, crossv)
+```
+
+#pred2 <- predict(mod2, crossv)
+#pred3 <- predict(mod3, crossv)
+
+# Presenting confusion matrice
+```{r}
+confusionMatrix(pred1, crossv$classe)
+```
+#confusionMatrix(pred2, crossv$classe)
+#confusionMatrix(pred3, crossv$classe)
+
+#Combined Model creation
+
+#predDF <- data.frame(pred1, pred2, pred3, classe=crossv$classe)
+#predDF <- data.frame(pred1, pred2, classe=crossv$classe)
+
+#combModFit <- train(classe ~ ., method="rf", data=predDF)
+#in-sample error
+#combPredIn <- predict(combModFit, predDF)
+#confusionMatrix(combPredIn, predDF$classe)
+
+# Out-sample error
+```{r}
+pred1 <- predict(mod1, crossv_test)
+```
+
+#pred2 <- predict(mod2, crossv_test)
+#pred3 <- predict(mod3, crossv_test)
+
+```{r}
+accuracy <- sum(pred1 == crossv_test$classe) / length(pred1)
+```
+
+```{r}
+accuracy
+```
+
+
+# Assessing relevant variables and displayed by plots
+```{r}
+varImpRF <- train(classe ~ ., data = training, method = "rf")
+varImpObj <- varImp(varImpRF)
+plot(varImpObj, main = "Importance of Top 40 Variables", top = 40)
+```
+# Conclusion
+
+1.Creating three prediction models using training data. The Random Forest prediction is better than either the GBM or lsa prediction models (it took long time to run codes of these three prediction models. Thus, only output of RF model code was displayed )
+2. Confusion matrices had showed 98.61% of accuracy. By calculating out of sample error, 98.93 % accuracy was achieved. It indicated the Random Forest method functioned well and stable as compared to other prediction models. 
+3. A Random forest can handle both unscaled variables and categorical variables, which made easier for data cleansing.  
+4.Top 5 important variables are pitch_arm, magnet_ dullbell_Y , magnet_dullbell_z, roll_forearm, accel_belt_z
+
+
